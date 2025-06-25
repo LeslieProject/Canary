@@ -11,98 +11,121 @@
     .statement h2 { margin: 0; }
     .statement time { color: #666; font-size: 0.9em; display: block; margin-bottom: 0.5em; }
     .statement pre { background: #f9f9f9; padding: 0.5rem; white-space: pre-wrap; }
+    .pagination { text-align: center; margin: 2rem 0; }
+    .pagination button {
+      margin: 0 0.25rem;
+      padding: 0.4rem 0.8rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      background: #f0f0f0;
+      cursor: pointer;
+    }
+    .pagination button.active {
+      background: #333;
+      color: white;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <h1>Leslie’s Canary Statements</h1>
-  <div id="container">
-    <p>加载中…</p>
-  </div>
+  <div id="container"><p>加载中…</p></div>
+  <div class="pagination" id="pagination"></div>
 
   <script>
     const owner  = 'LeslieProject';
     const repo   = 'Canary';
-    const folder = 'Statements';  // 你的声明文件目录
-    const branch = 'main';        // 默认分支，可改
+    const folder = 'Statements';
+    const branch = 'main';
+    const pageSize = 50;
 
-    // 拉取目录下所有文件
+    let fullList = [];
+
     async function getFiles() {
       const url = `https://api.github.com/repos/${owner}/${repo}/contents/${folder}?ref=${branch}`;
       const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`无法拉取目录：${resp.status}`);
+      if (!resp.ok) throw new Error(`目录获取失败：${resp.status}`);
       return (await resp.json()).filter(f => f.type === 'file');
     }
 
-    // 获取单个文件的最新提交时间
-    async function getLatestCommitDate(path) {
-      const url = new URL(`https://api.github.com/repos/${owner}/${repo}/commits`);
-      url.searchParams.set('path', `${folder}/${path}`);
-      url.searchParams.set('sha', branch);
-      url.searchParams.set('per_page', '1');
+    async function getCommitDate(filePath) {
+      const url = `https://api.github.com/repos/${owner}/${repo}/commits?path=${folder}/${filePath}&sha=${branch}&per_page=1`;
       const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`无法获取提交信息：${resp.status}`);
+      if (!resp.ok) throw new Error(`提交时间获取失败：${resp.status}`);
       const commits = await resp.json();
       if (!commits.length) return null;
-      return commits[0].commit.author.date; // ISO 字符串
+      return new Date(commits[0].commit.author.date);
     }
 
-    async function render() {
+    async function prepareList() {
+      const files = await getFiles();
+      fullList = await Promise.all(files.map(async file => {
+        const date = await getCommitDate(file.name);
+        return { ...file, date };
+      }));
+      fullList.sort((a, b) => b.date - a.date);
+    }
+
+    async function renderPage(page = 1) {
       const container = document.getElementById('container');
-      try {
-        const files = await getFiles();
+      container.innerHTML = `<p>正在加载第 ${page} 页…</p>`;
 
-        // 为每个文件获取 commit 时间
-        const withDates = await Promise.all(files.map(async f => {
-          const date = await getLatestCommitDate(f.name);
-          return { ...f, date: date ? new Date(date) : null };
-        }));
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const pageItems = fullList.slice(start, end);
 
-        // 根据日期排序：最新在前
-        withDates.sort((a, b) => {
-          if (a.date && b.date) return b.date - a.date;
-          if (a.date) return -1;
-          if (b.date) return 1;
-          return 0;
-        });
+      container.innerHTML = '';
 
-        container.innerHTML = '';
-        for (const file of withDates) {
-          const textResp = await fetch(file.download_url);
-          const content  = await textResp.text();
+      for (const file of pageItems) {
+        const textResp = await fetch(file.download_url);
+        const content = await textResp.text();
 
-          const stmtDiv = document.createElement('div');
-          stmtDiv.className = 'statement';
+        const stmtDiv = document.createElement('div');
+        stmtDiv.className = 'statement';
 
-          // 标题：文件名
-          const h2 = document.createElement('h2');
-          h2.textContent = file.name;
-          stmtDiv.appendChild(h2);
+        const h2 = document.createElement('h2');
+        h2.textContent = file.name;
+        stmtDiv.appendChild(h2);
 
-          // 时间戳：commit 时间
-          if (file.date) {
-            const time = document.createElement('time');
-            time.dateTime = file.date.toISOString();
-            time.textContent = file.date.toLocaleString(undefined, {
-              year: 'numeric', month: 'long', day: 'numeric',
-              hour: '2-digit', minute: '2-digit'
-            });
-            stmtDiv.appendChild(time);
-          }
-
-          // 正文
-          const pre = document.createElement('pre');
-          pre.textContent = content.trim();
-          stmtDiv.appendChild(pre);
-
-          container.appendChild(stmtDiv);
+        if (file.date) {
+          const time = document.createElement('time');
+          time.dateTime = file.date.toISOString();
+          time.textContent = file.date.toLocaleString(undefined, {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+          });
+          stmtDiv.appendChild(time);
         }
 
-      } catch (e) {
-        container.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`;
+        const pre = document.createElement('pre');
+        pre.textContent = content.trim();
+        stmtDiv.appendChild(pre);
+
+        container.appendChild(stmtDiv);
+      }
+
+      renderPagination(page);
+    }
+
+    function renderPagination(currentPage) {
+      const pageCount = Math.ceil(fullList.length / pageSize);
+      const pagination = document.getElementById('pagination');
+      pagination.innerHTML = '';
+
+      for (let i = 1; i <= pageCount; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        if (i === currentPage) btn.classList.add('active');
+        btn.onclick = () => renderPage(i);
+        pagination.appendChild(btn);
       }
     }
 
-    render();
+    // 主入口
+    prepareList().then(() => renderPage(1))
+      .catch(err => {
+        document.getElementById('container').innerHTML = `<p style="color:red">加载失败：${err.message}</p>`;
+      });
   </script>
 </body>
 </html>
