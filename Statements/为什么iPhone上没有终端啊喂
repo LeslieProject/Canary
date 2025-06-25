@@ -1,0 +1,7 @@
+iPhone的iOS明明基于Darwin，是类Unix，为什么MacOS有的终端iPhone上却没有？
+
+要是iPhone上也有Termux那种类Shell就好了，这样就可以在终端里运行各种好玩的CLI程序了！
+
+当然如果Apple能让用户免越狱提权到sudo就perfect了（
+
+好吧我在痴人说梦...
